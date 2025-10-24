@@ -36,7 +36,7 @@ async def start_command(message: Message):
 
 
 @user_router.message(F.text)
-async def handle_text_message(message: Message, sheets_service: GoogleSheetsService, bot, mod_chat_id: str, moderator_ids: list):
+async def handle_text_message(message: Message, sheets_service: GoogleSheetsService, bot, mod_chat_id: str):
     """
     Обработчик текстовых сообщений от пользователей
     Сохраняет проблему в Google Sheets и отправляет на модерацию
@@ -79,7 +79,7 @@ async def handle_text_message(message: Message, sheets_service: GoogleSheetsServ
         
         # Отправляем проблему модераторам
         from handlers.moderation import send_to_moderators
-        await send_to_moderators(bot, int(mod_chat_id), problem_id, problem_text, moderator_ids)
+        await send_to_moderators(bot, int(mod_chat_id), problem_id, problem_text)
         
         logger.info(f"Пользователь {message.from_user.id} отправил проблему #{problem_id}")
         

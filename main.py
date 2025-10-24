@@ -43,11 +43,7 @@ async def main():
     channel_id = os.getenv('CHANNEL_ID')
     mod_chat_id = os.getenv('MOD_CHAT_ID')
     google_sheet_id = os.getenv('GOOGLE_SHEET_ID')
-    google_credentials_path = os.getenv('GOOGLE_CREDENTIALS_PATH', 'credentials.json')
-    
-    # Получаем ID модераторов (через запятую)
-    moderator_ids_str = os.getenv('MODERATOR_IDS', '719991464')
-    moderator_ids = [int(id.strip()) for id in moderator_ids_str.split(',') if id.strip().isdigit()]
+    google_credentials_path = os.getenv('GOOGLE_CREDENTIALS_PATH', '/etc/secrets/credentials.json')
     
     # Проверяем наличие всех необходимых переменных
     required_vars = {
@@ -76,7 +72,6 @@ async def main():
             sheets_service=sheets_service,
             channel_id=channel_id,
             mod_chat_id=mod_chat_id,
-            moderator_ids=moderator_ids,
             bot=bot
         )
         

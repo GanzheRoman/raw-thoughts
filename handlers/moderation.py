@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 moderation_router = Router()
 
 
-async def send_to_moderators(bot, mod_chat_id: int, problem_id: int, problem_text: str, moderator_ids: list = None):
+async def send_to_moderators(bot, mod_chat_id: int, problem_id: int, problem_text: str):
     """
     Отправка проблемы модераторам для рассмотрения
     
@@ -25,7 +25,6 @@ async def send_to_moderators(bot, mod_chat_id: int, problem_id: int, problem_tex
         mod_chat_id: ID чата модераторов
         problem_id: ID проблемы
         problem_text: Текст проблемы
-        moderator_ids: Список ID модераторов
     """
     try:
         # Создаем сообщение для модераторов
@@ -52,35 +51,15 @@ async def send_to_moderators(bot, mod_chat_id: int, problem_id: int, problem_tex
             ]
         ])
         
-        # Если не переданы ID модераторов, используем дефолтный список
-        if not moderator_ids:
-            moderator_ids = [719991464]  # Ваш ID из логов
+        # Отправляем сообщение модераторам
+        await bot.send_message(
+            chat_id=mod_chat_id,
+            text=moderation_text,
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
         
-        # Отправляем каждому модератору
-        for moderator_id in moderator_ids:
-            try:
-                await bot.send_message(
-                    chat_id=moderator_id,
-                    text=moderation_text,
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-                logger.info(f"Проблема #{problem_id} отправлена модератору {moderator_id}")
-            except Exception as mod_error:
-                logger.error(f"Ошибка отправки модератору {moderator_id}: {mod_error}")
-        
-        # Также пробуем отправить в чат модераторов (если настроен)
-        if mod_chat_id:
-            try:
-                await bot.send_message(
-                    chat_id=mod_chat_id,
-                    text=moderation_text,
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-                logger.info(f"Проблема #{problem_id} отправлена в чат модераторов")
-            except Exception as chat_error:
-                logger.error(f"Ошибка отправки в чат модераторов: {chat_error}")
+        logger.info(f"Проблема #{problem_id} отправлена модераторам")
         
     except Exception as e:
         logger.error(f"Ошибка при отправке модераторам: {e}")
@@ -185,7 +164,7 @@ async def publish_to_channel(bot, channel_id: int, problem_id: int, problem_text
 👍 0
         """
         
-        # Создаем inline-кнопку для лайков (изначально "Лайк")
+        # Создаем inline-кнопку для лайков
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(
@@ -238,105 +217,3 @@ async def moderation_stats(message: Message, sheets_service: GoogleSheetsService
     except Exception as e:
         logger.error(f"Ошибка при получении статистики: {e}")
         await message.answer("❌ Ошибка при получении статистики")
-
-
-@moderation_router.message(Command("pending"))
-async def show_pending_problems(message: Message, sheets_service: GoogleSheetsService):
-    """Показать все проблемы, ожидающие модерации"""
-    try:
-        pending_problems = sheets_service.get_pending_problems()
-        
-        if not pending_problems:
-            await message.answer("📭 Нет проблем, ожидающих модерации")
-            return
-        
-        text = f"⏳ **Проблемы на модерации ({len(pending_problems)}):**\n\n"
-        
-        for problem in pending_problems:
-            text += f"**#{problem.get('ID')}** - {problem.get('Текст проблемы', '')[:100]}{'...' if len(problem.get('Текст проблемы', '')) > 100 else ''}\n"
-            text += f"📅 {problem.get('Дата создания', '')}\n\n"
-        
-        # Разбиваем на части, если сообщение слишком длинное
-        if len(text) > 4000:
-            parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
-            for part in parts:
-                await message.answer(part, parse_mode="Markdown")
-        else:
-            await message.answer(text, parse_mode="Markdown")
-            
-    except Exception as e:
-        logger.error(f"Ошибка при получении ожидающих проблем: {e}")
-        await message.answer("❌ Ошибка при получении данных")
-
-
-@moderation_router.message(Command("approve"))
-async def approve_problem_command(message: Message, sheets_service: GoogleSheetsService, bot, channel_id: str):
-    """Команда для одобрения проблемы: /approve <ID>"""
-    try:
-        command_text = message.text.split()
-        if len(command_text) < 2:
-            await message.answer("❌ Использование: /approve <ID_проблемы>")
-            return
-        
-        try:
-            problem_id = int(command_text[1])
-        except ValueError:
-            await message.answer("❌ ID должен быть числом")
-            return
-        
-        problem_data = sheets_service.get_problem_by_id(problem_id)
-        if not problem_data:
-            await message.answer(f"❌ Проблема #{problem_id} не найдена")
-            return
-        
-        if problem_data.get('Статус') != 'pending':
-            await message.answer(f"❌ Проблема #{problem_id} уже обработана")
-            return
-        
-        success = sheets_service.update_status(problem_id, "approved")
-        
-        if success:
-            await publish_to_channel(bot, int(channel_id), problem_id, problem_data['Текст проблемы'])
-            await message.answer(f"✅ Проблема #{problem_id} одобрена и опубликована в канале!")
-        else:
-            await message.answer(f"❌ Ошибка при одобрении проблемы #{problem_id}")
-            
-    except Exception as e:
-        logger.error(f"Ошибка при одобрении: {e}")
-        await message.answer("❌ Произошла ошибка")
-
-
-@moderation_router.message(Command("reject"))
-async def reject_problem_command(message: Message, sheets_service: GoogleSheetsService):
-    """Команда для отклонения проблемы: /reject <ID>"""
-    try:
-        command_text = message.text.split()
-        if len(command_text) < 2:
-            await message.answer("❌ Использование: /reject <ID_проблемы>")
-            return
-        
-        try:
-            problem_id = int(command_text[1])
-        except ValueError:
-            await message.answer("❌ ID должен быть числом")
-            return
-        
-        problem_data = sheets_service.get_problem_by_id(problem_id)
-        if not problem_data:
-            await message.answer(f"❌ Проблема #{problem_id} не найдена")
-            return
-        
-        if problem_data.get('Статус') != 'pending':
-            await message.answer(f"❌ Проблема #{problem_id} уже обработана")
-            return
-        
-        success = sheets_service.update_status(problem_id, "rejected")
-        
-        if success:
-            await message.answer(f"❌ Проблема #{problem_id} отклонена")
-        else:
-            await message.answer(f"❌ Ошибка при отклонении проблемы #{problem_id}")
-            
-    except Exception as e:
-        logger.error(f"Ошибка при отклонении: {e}")
-        await message.answer("❌ Произошла ошибка")

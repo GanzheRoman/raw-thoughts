@@ -27,7 +27,6 @@ async def handle_like(callback: CallbackQuery, sheets_service: GoogleSheetsServi
     try:
         # Извлекаем ID проблемы из callback_data
         problem_id = int(callback.data.split("_")[1])
-        user_id = callback.from_user.id
         
         # Получаем текущие данные проблемы
         problem_data = sheets_service.get_problem_by_id(problem_id)
@@ -36,22 +35,21 @@ async def handle_like(callback: CallbackQuery, sheets_service: GoogleSheetsServi
             await callback.answer("❌ Проблема не найдена")
             return
         
-        # Переключаем лайк (добавить/убрать)
-        result = sheets_service.toggle_like(problem_id, user_id)
+        # Увеличиваем количество лайков на 1
+        current_likes = problem_data.get('Лайки', 0)
+        new_likes = current_likes + 1
         
-        if result[0] is not None:
-            new_likes_count, was_added = result
-            
+        # Обновляем количество лайков в Google Sheets
+        success = sheets_service.update_likes(problem_id, new_likes)
+        
+        if success:
             # Обновляем сообщение в канале
-            await update_channel_message(callback, problem_id, problem_data['Текст проблемы'], new_likes_count, user_id, sheets_service)
+            await update_channel_message(callback, problem_id, problem_data['Текст проблемы'], new_likes)
             
             # Уведомляем пользователя
-            if was_added:
-                await callback.answer(f"👍 Лайк добавлен! Всего: {new_likes_count}")
-            else:
-                await callback.answer(f"👎 Лайк убран! Всего: {new_likes_count}")
+            await callback.answer(f"👍 Лайк добавлен! Всего: {new_likes}")
             
-            logger.info(f"Пользователь {user_id} {'добавил' if was_added else 'убрал'} лайк к проблеме #{problem_id}, всего лайков: {new_likes_count}")
+            logger.info(f"Лайк добавлен к проблеме #{problem_id}, всего лайков: {new_likes}")
         else:
             await callback.answer("❌ Ошибка при обновлении лайков")
             
@@ -60,7 +58,7 @@ async def handle_like(callback: CallbackQuery, sheets_service: GoogleSheetsServi
         await callback.answer("❌ Произошла ошибка")
 
 
-async def update_channel_message(callback: CallbackQuery, problem_id: int, problem_text: str, likes_count: int, user_id: int, sheets_service: GoogleSheetsService):
+async def update_channel_message(callback: CallbackQuery, problem_id: int, problem_text: str, likes_count: int):
     """
     Обновление сообщения в канале с новым количеством лайков
     
@@ -69,15 +67,8 @@ async def update_channel_message(callback: CallbackQuery, problem_id: int, probl
         problem_id: ID проблемы
         problem_text: Текст проблемы
         likes_count: Количество лайков
-        user_id: ID пользователя
-        sheets_service: Сервис для работы с Google Sheets
     """
     try:
-        # Проверяем, лайкнул ли пользователь
-        has_liked = sheets_service.has_user_liked(problem_id, user_id)
-        
-        logger.info(f"Пользователь {user_id} лайкнул проблему #{problem_id}: {has_liked}")
-        
         # Форматируем обновленное сообщение
         updated_text = f"""
 💭 **Проблема #{problem_id}**
@@ -87,18 +78,11 @@ async def update_channel_message(callback: CallbackQuery, problem_id: int, probl
 👍 {likes_count}
         """
         
-        # Создаем обновленную клавиатуру в зависимости от статуса лайка
-        if has_liked:
-            button_text = f"👎 Убрать лайк ({likes_count})"
-        else:
-            button_text = f"👍 Лайк ({likes_count})"
-        
-        logger.info(f"Кнопка для проблемы #{problem_id}: {button_text}")
-        
+        # Создаем обновленную клавиатуру
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=button_text, 
+                    text=f"👍 Лайк ({likes_count})", 
                     callback_data=f"like_{problem_id}"
                 )
             ]

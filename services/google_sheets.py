@@ -6,6 +6,7 @@
 import gspread
 from google.oauth2.service_account import Credentials
 import os
+import json
 from typing import Optional, Dict, Any
 import logging
 
@@ -39,10 +40,23 @@ class GoogleSheetsService:
             ]
             
             # Загрузка учетных данных
-            credentials = Credentials.from_service_account_file(
-                self.credentials_path, 
-                scopes=scope
-            )
+            if os.path.exists(self.credentials_path):
+                # Локальная разработка - файл существует
+                credentials = Credentials.from_service_account_file(
+                    self.credentials_path, 
+                    scopes=scope
+                )
+            else:
+                # Продакшн (Render) - загружаем из переменной окружения
+                creds_json = os.getenv('GOOGLE_CREDENTIALS')
+                if creds_json:
+                    credentials_info = json.loads(creds_json)
+                    credentials = Credentials.from_service_account_info(
+                        credentials_info,
+                        scopes=scope
+                    )
+                else:
+                    raise FileNotFoundError(f"Credentials not found at {self.credentials_path} and GOOGLE_CREDENTIALS env var not set")
             
             # Создание клиента
             self.client = gspread.authorize(credentials)
@@ -93,7 +107,7 @@ class GoogleSheetsService:
             from datetime import datetime
             current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            # Добавляем новую строку (только нужные поля)
+            # Добавляем новую строку
             new_row = [next_id, problem_text, 0, "pending", current_date]
             self.worksheet.append_row(new_row)
             
@@ -221,129 +235,3 @@ class GoogleSheetsService:
         except Exception as e:
             logger.error(f"Ошибка при получении ожидающих проблем: {e}")
             return []
-    
-    def toggle_like(self, problem_id: int, user_id: int) -> tuple:
-        """
-        Переключение лайка пользователя (добавить/убрать)
-        
-        Args:
-            problem_id: ID проблемы
-            user_id: ID пользователя
-            
-        Returns:
-            Кортеж (новое_количество_лайков, был_добавлен_лайк)
-        """
-        try:
-            # Получаем данные проблемы
-            problem_data = self.get_problem_by_id(problem_id)
-            if not problem_data:
-                return None, False
-            
-            # Получаем текущих лайкнувших
-            liked_users_str = problem_data.get('Лайкнувшие пользователи', '')
-            liked_users = set()
-            
-            if liked_users_str:
-                # Проверяем, что это строка, а не число
-                if isinstance(liked_users_str, (int, float)):
-                    liked_users_str = str(liked_users_str)
-                    logger.info(f"Проблема #{problem_id}: преобразовали число в строку: '{liked_users_str}'")
-                
-                # Парсим строку с ID пользователей (через запятую)
-                liked_users = set(int(uid.strip()) for uid in liked_users_str.split(',') if uid.strip().isdigit())
-            
-            current_likes = len(liked_users)
-            was_added = False
-            
-            if user_id in liked_users:
-                # Убираем лайк
-                liked_users.remove(user_id)
-                was_added = False
-            else:
-                # Добавляем лайк
-                liked_users.add(user_id)
-                was_added = True
-            
-            new_likes_count = len(liked_users)
-            
-            # Обновляем количество лайков
-            self.update_likes(problem_id, new_likes_count)
-            
-            # Обновляем список лайкнувших пользователей
-            liked_users_str = ','.join(map(str, sorted(liked_users)))
-            logger.info(f"Обновляем список лайкнувших для проблемы #{problem_id}: {liked_users_str}")
-            
-            self._update_liked_users(problem_id, liked_users_str)
-            
-            logger.info(f"Пользователь {user_id} {'добавил' if was_added else 'убрал'} лайк к проблеме #{problem_id}")
-            return new_likes_count, was_added
-            
-        except Exception as e:
-            logger.error(f"Ошибка при переключении лайка: {e}")
-            return None, False
-    
-    def _update_liked_users(self, problem_id: int, liked_users_str: str) -> bool:
-        """
-        Обновление списка лайкнувших пользователей
-        
-        Args:
-            problem_id: ID проблемы
-            liked_users_str: Строка с ID пользователей через запятую
-            
-        Returns:
-            True если обновление прошло успешно
-        """
-        try:
-            # Находим строку с нужным ID
-            id_column = self.worksheet.col_values(1)
-            
-            for row_num, cell_id in enumerate(id_column, 1):
-                if str(cell_id) == str(problem_id):
-                    # Обновляем список лайкнувших в столбце F (6-й столбец)
-                    self.worksheet.update_cell(row_num, 6, liked_users_str)
-                    return True
-            
-            return False
-            
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении списка лайкнувших: {e}")
-            return False
-    
-    def has_user_liked(self, problem_id: int, user_id: int) -> bool:
-        """
-        Проверка, лайкнул ли пользователь проблему
-        
-        Args:
-            problem_id: ID проблемы
-            user_id: ID пользователя
-            
-        Returns:
-            True если пользователь уже лайкнул
-        """
-        try:
-            problem_data = self.get_problem_by_id(problem_id)
-            if not problem_data:
-                logger.warning(f"Проблема #{problem_id} не найдена для проверки лайка")
-                return False
-            
-            liked_users_str = problem_data.get('Лайкнувшие пользователи', '')
-            logger.info(f"Проблема #{problem_id}: лайкнувшие пользователи = '{liked_users_str}' (тип: {type(liked_users_str)})")
-            
-            if not liked_users_str:
-                logger.info(f"Проблема #{problem_id}: нет лайкнувших пользователей")
-                return False
-            
-            # Проверяем, что это строка, а не число
-            if isinstance(liked_users_str, (int, float)):
-                liked_users_str = str(liked_users_str)
-                logger.info(f"Проблема #{problem_id}: преобразовали число в строку: '{liked_users_str}'")
-            
-            liked_users = set(int(uid.strip()) for uid in liked_users_str.split(',') if uid.strip().isdigit())
-            logger.info(f"Проблема #{problem_id}: лайкнувшие пользователи = {liked_users}")
-            logger.info(f"Проверяем, есть ли пользователь {user_id} в списке: {user_id in liked_users}")
-            
-            return user_id in liked_users
-            
-        except Exception as e:
-            logger.error(f"Ошибка при проверке лайка: {e}")
-            return False
