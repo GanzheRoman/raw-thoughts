@@ -19,9 +19,16 @@ moderation_router = Router()
 async def send_to_moderators(bot, mod_chat_id: int, problem_id: int, problem_text: str, moderator_ids: list = None):
     """
     Отправка проблемы модераторам для рассмотрения
-    Только в ЛС модераторам, не в групповой чат.
+    
+    Args:
+        bot: Экземпляр бота
+        mod_chat_id: ID чата модераторов
+        problem_id: ID проблемы
+        problem_text: Текст проблемы
+        moderator_ids: Список ID модераторов
     """
     try:
+        # Создаем сообщение для модераторов
         moderation_text = f"""
 🔍 **Новая проблема для модерации**
 
@@ -30,6 +37,8 @@ async def send_to_moderators(bot, mod_chat_id: int, problem_id: int, problem_tex
 
 Выберите действие:
         """
+        
+        # Создаем inline-кнопки для модерации
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(
@@ -42,9 +51,12 @@ async def send_to_moderators(bot, mod_chat_id: int, problem_id: int, problem_tex
                 )
             ]
         ])
+        
+        # Если не переданы ID модераторов, используем дефолтный список
         if not moderator_ids:
-            moderator_ids = [719991464]  # Fallback, если context не передан
-        # Отправляем только в ЛС модераторам
+            moderator_ids = [719991464]  # Ваш ID из логов
+        
+        # Отправляем каждому модератору
         for moderator_id in moderator_ids:
             try:
                 await bot.send_message(
@@ -56,18 +68,20 @@ async def send_to_moderators(bot, mod_chat_id: int, problem_id: int, problem_tex
                 logger.info(f"Проблема #{problem_id} отправлена модератору {moderator_id}")
             except Exception as mod_error:
                 logger.error(f"Ошибка отправки модератору {moderator_id}: {mod_error}")
-        # Исключаем публикацию в модераторский чат:
-        # if mod_chat_id:
-        #     try:
-        #         await bot.send_message(
-        #             chat_id=mod_chat_id,
-        #             text=moderation_text,
-        #             reply_markup=keyboard,
-        #             parse_mode="Markdown"
-        #         )
-        #         logger.info(f"Проблема #{problem_id} отправлена в чат модераторов")
-        #     except Exception as chat_error:
-        #         logger.error(f"Ошибка отправки в чат модераторов: {chat_error}")
+        
+        # Также пробуем отправить в чат модераторов (если настроен)
+        if mod_chat_id:
+            try:
+                await bot.send_message(
+                    chat_id=mod_chat_id,
+                    text=moderation_text,
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+                logger.info(f"Проблема #{problem_id} отправлена в чат модераторов")
+            except Exception as chat_error:
+                logger.error(f"Ошибка отправки в чат модераторов: {chat_error}")
+        
     except Exception as e:
         logger.error(f"Ошибка при отправке модераторам: {e}")
 
