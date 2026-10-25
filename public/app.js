@@ -328,7 +328,22 @@ function initMap() {
   const el = $('#map'); if (!el) return;
   if (typeof L === 'undefined') { el.innerHTML = '<div class="empty">Карта недоступна</div>'; return; }
   const map = ui.map = L.map(el).setView([56, 38], 5);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 18 }).addTo(map);
+  const osm = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const base = {
+    'Светлая': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: osm + ' © CARTO', subdomains: 'abcd', maxZoom: 19 }),
+    'OpenStreetMap': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: osm, maxZoom: 19 }),
+    'Спутник': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Esri, Maxar, Earthstar Geographics', maxZoom: 18 }),
+  };
+  const chosen = base[ui.baseLayer] || base['Светлая'];
+  chosen.addTo(map);
+  L.control.layers(base, null, { position: 'topright' }).addTo(map);
+  map.on('baselayerchange', (e) => { ui.baseLayer = e.name; });
+  let ok = 0, bad = 0;
+  for (const l of Object.values(base)) {
+    l.on('tileload', () => { ok++; });
+    l.on('tileerror', () => { if (++bad === 6 && !ok) toast('Плитки карты не загружаются: проверьте интернет или выберите другой слой справа вверху'); });
+  }
+  setTimeout(() => map.invalidateSize(), 100);
   ui.markers = {};
   for (const s of DB.sites) {
     const icon = L.divIcon({ className: '', iconSize: [24, 24], iconAnchor: [12, 12], html: `<div style="width:24px;height:24px;border-radius:50%;background:${SCOLOR[s.status]};border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35)"></div>` });
