@@ -16,7 +16,7 @@ async function save(col, item, extra) {
   await reload(); render(); if (extra !== false) toast('Сохранено');
 }
 async function remove(col, id, msg = 'Удалить запись?') {
-  if (!confirm(msg)) return;
+  if (!(await askConfirm(msg))) return;
   await api('DELETE', `${col}/${id}`); await reload(); render(); toast('Удалено');
 }
 function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 1800); }
@@ -78,6 +78,14 @@ function form(title, fields, values, onSave) {
   };
   m.onclick = (e) => { if (e.target === m || e.target.hasAttribute('data-close')) closeModal(); };
   const first = fm.querySelector('input,select,textarea'); first && first.focus();
+}
+function askConfirm(msg) {
+  return new Promise((resolve) => {
+    const m = $('#modal');
+    m.innerHTML = `<div class="dlg"><h3>${esc(msg)}</h3><div class="foot"><button data-no>Отмена</button><button class="primary" data-yes>Да</button></div></div>`;
+    m.classList.remove('hidden');
+    m.onclick = (e) => { if (e.target === m || e.target.hasAttribute('data-no')) { closeModal(); resolve(false); } else if (e.target.hasAttribute('data-yes')) { closeModal(); resolve(true); } };
+  });
 }
 const closeModal = () => { $('#modal').classList.add('hidden'); $('#modal').innerHTML = ''; };
 
@@ -376,7 +384,7 @@ document.addEventListener('click', async (e) => {
     'del-foreman': () => remove('foremen', id, 'Удалить бригадира? Рабочие останутся без бригадира.'),
     'new-task': () => editTask(), 'edit-task': () => editTask(byId('tasks', id)), 'del-task': () => remove('tasks', id),
     'new-admin': () => editAdmin(), 'edit-admin': () => editAdmin(byId('admins', id)), 'del-admin': () => remove('admins', id),
-    reset: async () => { if (confirm('Сбросить все данные?')) { await api('POST', 'reset'); await reload(); render(); toast('Данные сброшены'); } },
+    reset: async () => { if (await askConfirm('Сбросить все данные?')) { await api('POST', 'reset'); await reload(); render(); toast('Данные сброшены'); } },
   };
   actions[a]?.();
 });
